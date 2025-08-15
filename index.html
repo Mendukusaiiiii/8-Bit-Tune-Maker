@@ -40,7 +40,7 @@
 <div class="wrap">
   <h1>8‑Bit Tune Maker</h1>
 
-  <!-- Transport & global controls -->
+  <!-- Transport and global controls -->
   <div class="panel" id="transport">
     <div class="row">
       <button class="primary" id="playBtn">▶ Play</button>
@@ -53,7 +53,7 @@
       </div>
       <div class="pill"><label for="steps">Steps</label>
         <select id="steps">
-          <option>8</option><option>12</option><option>16</option><option>32</option>
+          <option>8</option><option>12</option><option>16</option><option>32</option><option>64</option><option>128</option>
         </select>
       </div>
       <button id="clearBtn">Clear Grid</button>
@@ -127,15 +127,15 @@
     <table id="seq"></table>
   </div>
 
-  <p class="tiny">Made by Mendukusaii with Web Audio API. Export uses an OfflineAudioContext to render a .wav of your loop.</p>
+  <p class="tiny">Made by Mendukusaiiiii with Web Audio API. Export uses an OfflineAudioContext to render a .wav of your loop.</p>
 </div>
 
 <script>
 /* ----------------------- Helpers ----------------------- */
 
-
+// Equal-tempered frequency table:
 const NOTES = [
-  "—",
+  "—", // rest
   "C3","C#3","D3","D#3","E3","F3","F#3","G3","G#3","A3","A#3","B3",
   "C4","C#4","D4","D#4","E4","F4","F#4","G4","G#4","A4","A#4","B4",
   "C5","C#5","D5","D#5","E5","F5","F#5","G5","G#5","A5","A#5","B5"
@@ -143,7 +143,7 @@ const NOTES = [
 const A4 = 440;
 function noteToFreq(n){
   if(n==="—") return 0;
-
+  // parse like C#4
   const m = n.match(/^([A-G])(#?)(\d)$/);
   if(!m) return 0;
   const baseIdx = {C:0,"C#":1,D:2,"D#":3,E:4,F:5,"F#":6,G:7,"G#":8,A:9,"A#":10,B:11};
@@ -153,21 +153,23 @@ function noteToFreq(n){
   return A4*Math.pow(2, semisFromA4/12);
 }
 
-
+// Build a custom duty-cycle square via PeriodicWave
 function makeDutySquare(ctx, duty=0.25){
-  const harmonics = 64; 
+  const harmonics = 64; // enough for chip-like bite
   const real = new Float32Array(harmonics+1);
   const imag = new Float32Array(harmonics+1);
+  // Fourier series for an ideal pulse train with duty p
+  // a_k = 2/(kπ) * sin(kπp), odd/even both contribute (unlike square which is p=0.5 and odd only)
   for(let k=1;k<=harmonics;k++){
     const ak = (2/(k*Math.PI))*Math.sin(k*Math.PI*(duty/100));
-    
+    // cosine terms only (imag in WebAudio = sine)
     real[k] = ak;
     imag[k] = 0;
   }
   return ctx.createPeriodicWave(real, imag, {disableNormalization:true});
 }
 
-
+// Simple JSON file helpers
 function download(filename, text){
   const a = document.createElement('a');
   a.href = URL.createObjectURL(new Blob([text], {type:'application/json'}));
@@ -197,7 +199,7 @@ const tracks = [
 ];
 
 let steps = 16;
-let grid = []; // 
+let grid = []; // [track][step] -> note string
 function initGrid(n){
   steps = n;
   grid = Array.from({length:tracks.length}, ()=> Array.from({length:n}, ()=> "—"));
@@ -241,7 +243,7 @@ function buildGrid(){
         td.classList.toggle('sel', sel.value!=="—");
       });
       sel.addEventListener('keydown', (e)=>{
-       
+        // quick up/down note changes
         const idx = NOTES.indexOf(sel.value);
         if(e.key==='ArrowUp'){ e.preventDefault(); sel.value = NOTES[Math.max(1, idx<=0?1:idx-1)]; sel.dispatchEvent(new Event('change')); }
         if(e.key==='ArrowDown'){ e.preventDefault(); sel.value = NOTES[Math.min(NOTES.length-1, idx+1)]; sel.dispatchEvent(new Event('change')); }
@@ -299,7 +301,7 @@ stepsEl.onchange = ()=>{
   buildGrid();
 };
 
-
+// Per-track controls
 function bindTrackControls(){
   const dutyA = document.getElementById('dutyA');
   const dutyB = document.getElementById('dutyB');
@@ -326,17 +328,17 @@ function start(){
     const secPerBeat = 60/bpm;
     const stepDur = secPerBeat/2; // 8th notes by default (16 steps per 4/4 bar)
     const gate = parseFloat(gateEl.value); // portion of step held
-    const swing = parseFloat(swingEl.value); 
+    const swing = parseFloat(swingEl.value); // 0..0.6 delay on off-beats
     const now = audioCtx.currentTime;
 
-  
+    // schedule this step
     playColumn(stepIndex, now, stepDur, gate);
 
-  
+    // visual
     const prev = (stepIndex-1+steps)%steps;
     highlightStep(prev, stepIndex);
 
-
+    // increment index with swing on odd steps
     const isOdd = stepIndex%2===1;
     const swingDelay = isOdd ? stepDur*swing : 0;
 
@@ -398,12 +400,12 @@ function playColumn(col, when, stepDur, gate){
       osc.stop(when + noteDur + R + 0.02);
     } else if(t.type==="pulseA" || t.type==="pulseB"){
       const osc = audioCtx.createOscillator();
-      
+      // custom duty wave
       const duty = t.duty||25;
       const wave = makeDutySquare(audioCtx, duty);
       osc.setPeriodicWave(wave);
       osc.frequency.value = noteToFreq(n);
-      
+      // subtle chip vibrato on B
       if(t.type==="pulseB"){
         const lfo = audioCtx.createOscillator();
         lfo.frequency.value = 5; // 5 Hz
@@ -418,13 +420,13 @@ function playColumn(col, when, stepDur, gate){
       osc.start(when);
       osc.stop(when + noteDur + R + 0.02);
     } else if(t.type==="noise"){
-      
+      // short percussive noise (snare/hat feel)
       const buf = audioCtx.createBuffer(1, audioCtx.sampleRate * 0.5, audioCtx.sampleRate);
       const ch = buf.getChannelData(0);
       for(let i=0;i<ch.length;i++) ch[i] = Math.random()*2-1;
       const src = audioCtx.createBufferSource(); src.buffer = buf;
       src.loop = false;
-      
+      // highpass to make it hissy
       const hp = audioCtx.createBiquadFilter();
       hp.type = 'highpass'; hp.frequency.value = 3000;
       const eg = envGain(audioCtx, when, Math.min(0.12, noteDur), 0.001, 0.03, 0.0, 0.03, 0.9);
@@ -495,11 +497,11 @@ function importSong(song){
 /* ----------------------- Export WAV (Offline render) ----------------------- */
 async function exportWav(){
   const song = exportSong();
-  const bars = 1; 
+  const bars = 1; // render one loop
   const bpm = song.bpm;
   const secPerBeat = 60/bpm;
   const stepDur = secPerBeat/2;
-  const lengthSec = stepDur * song.steps * bars + 1.0;
+  const lengthSec = stepDur * song.steps * bars + 1.0; // tail
   const sampleRate = 44100;
   const oac = new OfflineAudioContext(2, Math.ceil(lengthSec*sampleRate), sampleRate);
 
@@ -507,7 +509,7 @@ async function exportWav(){
     const A=song.adsr.a, D=song.adsr.d, S=song.adsr.s, R=song.adsr.r;
     const noteDur = stepDur * (song.gate ?? 0.75);
     const tdefs = song.tracks;
-  
+    // helper
     function envGainOff(ctx, when, dur, A,D,S,R,peak=1){
       const g = ctx.createGain();
       g.gain.setValueAtTime(0, when);
@@ -517,7 +519,7 @@ async function exportWav(){
       g.gain.linearRampToValueAtTime(0.0001, when + dur + R);
       return g;
     }
-   
+    // noise buffer prebuild
     const noiseBuf = ctx.createBuffer(1, ctx.sampleRate*0.5, ctx.sampleRate);
     const ch = noiseBuf.getChannelData(0);
     for(let i=0;i<ch.length;i++) ch[i] = Math.random()*2-1;
@@ -536,7 +538,7 @@ async function exportWav(){
         o.start(when); o.stop(when+noteDur+R+0.02);
       }else if(t.type==='pulse'){
         const o = ctx.createOscillator();
-      
+        // duty
         const wave = (function(){
           const harmonics = 64;
           const real = new Float32Array(harmonics+1);
@@ -563,7 +565,7 @@ async function exportWav(){
     });
   }
 
-  
+  // schedule full loop with swing
   let t = 0;
   const swing = song.swing||0;
   for(let i=0;i<song.steps;i++){
@@ -574,12 +576,12 @@ async function exportWav(){
   }
 
   const rendered = await oac.startRendering();
-  )
+  // encode to WAV (16‑bit PCM)
   const ab = interleavedToWav(rendered);
   downloadWav('chiptune.wav', ab);
 }
 
-
+// Buffer -> WAV ArrayBuffer
 function interleavedToWav(buffer){
   const numCh = buffer.numberOfChannels;
   const sampleRate = buffer.sampleRate;
@@ -595,7 +597,7 @@ function interleavedToWav(buffer){
       inter[i*numCh+ch] = buffer.getChannelData(ch)[i];
     }
   }
- 
+
   const bytesPerSample = 2;
   const blockAlign = numCh * bytesPerSample;
   const bufferSize = 44 + inter.length * bytesPerSample;
@@ -611,7 +613,7 @@ function interleavedToWav(buffer){
   writeStr('fmt '); write32(16); write16(1); write16(numCh); write32(sampleRate);
   write32(sampleRate * blockAlign); write16(blockAlign); write16(16);
   writeStr('data'); write32(inter.length*2);
-
+ 
   for(let i=0;i<inter.length;i++){
     let s = Math.max(-1, Math.min(1, inter[i]));
     dv.setInt16(off, s<0 ? s*0x8000 : s*0x7FFF, true);
